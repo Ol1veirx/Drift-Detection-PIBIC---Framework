@@ -84,13 +84,11 @@ class FrameworkDetector:
                 erros_com_indices.append((erro, i))
             except Exception as e:
                 print(f"Erro ao avaliar modelo #{i}: {e}")
-                # Não adiciona este modelo à lista de candidatos
 
         if not erros_com_indices:
             print("ERRO: Nenhum modelo pôde ser avaliado!")
             return pool_filtrado[0] if pool_filtrado else None
 
-        # Encontra o modelo com menor erro
         menor_erro, melhor_indice = min(erros_com_indices)
         return pool_filtrado[melhor_indice]
 
@@ -107,7 +105,7 @@ class FrameworkDetector:
         janela.append(dado)
         if len(janela) > tamanho_max:
             janela.pop(0)
-        return janela  # É uma boa prática retornar a janela atualizada
+        return janela
 
     def get_state(detector):
         """
