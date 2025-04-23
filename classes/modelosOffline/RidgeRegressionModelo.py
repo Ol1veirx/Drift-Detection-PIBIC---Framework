@@ -8,6 +8,7 @@ class RidgeRegressionModelo(ModeloBase):
 
     def treinar(self, X, y):
         self.modelo.fit(X, y)
+        return self
 
     def prever(self, X):
         return self.modelo.predict(X)
