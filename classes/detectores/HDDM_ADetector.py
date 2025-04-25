@@ -3,9 +3,9 @@ from river.drift.binary import HDDM_A
 
 
 class HDDM_ADetector(DetectorDriftBase):
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.detector = HDDM_A()
+        self.detector = HDDM_A(**kwargs)
 
     def atualizar(self, erro):
         self.detector.update(erro)

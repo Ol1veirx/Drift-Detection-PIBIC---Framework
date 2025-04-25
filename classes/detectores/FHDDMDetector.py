@@ -2,9 +2,9 @@ from classes.superclasse.DetectorDriftBase import DetectorDriftBase
 from river.drift.binary import FHDDM
 
 class FHDDMDetector(DetectorDriftBase):
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.detector = FHDDM()
+        self.detector = FHDDM(**kwargs)
 
     def atualizar(self, erro):
         self.detector.update(erro)

@@ -20,17 +20,18 @@ class FrameworkDetector:
     """
 
     @staticmethod
-    def treinar_modelos_iniciais(X, y):
+    def treinar_modelos_iniciais(X, y, tipo_modelo_inicial=RandomForestModelo): # Adiciona parâmetro para tipo
         """
-        Treina uma lista inicial diversificada de modelos e aplica escalonamento.
+        Treina UM modelo inicial do tipo especificado e aplica escalonamento.
 
         Args:
             X (np.ndarray): Features de treinamento inicial.
             y (np.ndarray): Target de treinamento inicial.
+            tipo_modelo_inicial (class): A classe do wrapper do modelo a ser treinado (padrão: RandomForestModelo).
 
         Returns:
             tuple: Uma tupla contendo:
-                - list: A lista de modelos wrapper treinados.
+                - list: Uma lista contendo o único modelo wrapper treinado.
                 - StandardScaler: O scaler ajustado nos dados X.
         """
         modelos_treinados = []
@@ -38,60 +39,44 @@ class FrameworkDetector:
 
         print("Ajustando Scaler nos dados iniciais...")
         try:
-            # Ajustar e transformar os dados iniciais
             X_scaled = scaler.fit_transform(X)
             print("✓ Scaler ajustado e aplicado.")
         except Exception as e:
             print(f"❌ Erro ao ajustar/aplicar scaler: {e}. Continuando sem scaling.")
-            X_scaled = X # Usar dados originais se scaling falhar
+            X_scaled = X
 
-        # Lista de wrappers de modelos para tentar treinar
-        # Adicione ou remova conforme necessário
-        modelos_para_treinar = [
-            #(LinearRegressionModelo(), "Regressão Linear"), # Menos sensível ao scaling
-            #(RidgeRegressionModelo(), "Ridge"),           # Menos sensível ao scaling
-            (SVRModelo(), "SVR"),                         # PRECISA de scaling
-            (RandomForestModelo(), "Random Forest"),     # Menos sensível, mas pode ajudar
-            (KNeighborsRegressorModelo(), "KNN")         # PRECISA de scaling
-        ]
+        # Instancia e treina o único modelo inicial
+        nome_modelo = tipo_modelo_inicial.__name__ # Pega o nome da classe
+        print(f"\nIniciando treinamento do modelo inicial: {nome_modelo}...")
+        try:
+            modelo_wrapper_instancia = tipo_modelo_inicial() # Cria instância do tipo desejado
+            modelo_wrapper_instancia.treinar(X_scaled, y)
 
-        print("\nIniciando treinamento dos modelos iniciais...")
-        for modelo_wrapper_instancia, nome in modelos_para_treinar:
-            try:
-                print(f"  Treinando modelo {nome}...")
-                # Chama o método 'treinar' da instância do wrapper, passando dados escalados
-                # Assumindo que o método 'treinar' retorna a própria instância treinada ou o modelo interno
-                # Ajuste se seu método 'treinar' tiver outra assinatura
-                modelo_resultante = modelo_wrapper_instancia.treinar(X_scaled, y)
+            if modelo_wrapper_instancia.modelo is not None:
+                print(f"  ✅ Modelo {nome_modelo} treinado com sucesso")
+                modelos_treinados.append(modelo_wrapper_instancia)
+            else:
+                print(f"  ❌ Falha ao treinar modelo {nome_modelo} (modelo interno é None)")
 
-                # Verifica se o treinamento foi bem-sucedido (depende do que 'treinar' retorna)
-                # Se 'treinar' retorna self, a instância já está treinada.
-                # Se 'treinar' retorna o modelo sklearn, precisamos garantir que o wrapper o armazene.
-                # Vamos assumir que a instância do wrapper é o que queremos armazenar.
-                if modelo_wrapper_instancia.modelo is not None: # Verifica se o modelo interno foi treinado
-                    print(f"  ✅ Modelo {nome} treinado com sucesso")
-                    # Adiciona a *instância do wrapper* treinada ao pool
-                    modelos_treinados.append(modelo_wrapper_instancia)
-                else:
-                    print(f"  ❌ Falha ao treinar modelo {nome} (modelo interno é None)")
+        except Exception as e:
+            print(f"  ❌ Erro ao treinar modelo {nome_modelo}: {e}")
+            # traceback.print_exc()
 
-            except Exception as e:
-                print(f"  ❌ Erro ao treinar modelo {nome}: {e}")
-                # traceback.print_exc() # Descomente para debug detalhado
-
-        # Fallback se nenhum modelo foi treinado
+        # Fallback se o modelo principal falhar (opcional, pode remover se não quiser)
         if not modelos_treinados:
-            print("\n⚠️ AVISO: Nenhum modelo foi treinado com sucesso. Tentando Regressão Linear como fallback...")
+            print("\n⚠️ AVISO: Modelo inicial não treinado. Tentando Regressão Linear como fallback...")
             try:
                 modelo_fallback_wrapper = LinearRegressionModelo()
-                modelo_fallback_wrapper.treinar(X_scaled, y) # Treina com dados escalados
+                # Tenta treinar fallback com dados escalados se possível, senão originais
+                X_fallback = X_scaled if 'X_scaled' in locals() and X_scaled is not X else X
+                modelo_fallback_wrapper.treinar(X_fallback, y)
                 if modelo_fallback_wrapper.modelo is not None:
                     modelos_treinados.append(modelo_fallback_wrapper)
                     print("  ✅ Modelo de fallback (Regressão Linear) treinado com sucesso.")
                 else:
                      print("  ❌ Erro crítico: Não foi possível treinar o modelo de fallback.")
-            except Exception as e:
-                print(f"  ❌ Erro crítico ao treinar fallback: {e}")
+            except Exception as e_fallback:
+                print(f"  ❌ Erro crítico ao treinar fallback: {e_fallback}")
 
         print(f"\n✓ Treinamento inicial concluído. Modelos no pool: {len(modelos_treinados)}")
         return modelos_treinados, scaler
@@ -131,14 +116,14 @@ class FrameworkDetector:
         melhor_modelo = None
         menor_erro = float('inf')
 
-        print(f"  Avaliando {len(pool_modelos)} modelos do pool na janela ({len(y_janela)} amostras)...")
+        #print(f"  Avaliando {len(pool_modelos)} modelos do pool na janela ({len(y_janela)} amostras)...")
         for i, modelo_wrapper in enumerate(pool_modelos):
             try:
                 # Usa o método 'prever' do wrapper, que deve lidar com o modelo interno
                 # Passa os dados da janela escalados
                 y_pred = modelo_wrapper.prever(X_janela_scaled)
                 erro = mean_squared_error(y_janela, y_pred)
-                # print(f"    Modelo {i} ({modelo_wrapper.nome if hasattr(modelo_wrapper, 'nome') else type(modelo_wrapper).__name__}): MSE = {erro:.4f}") # Debug
+                print(f"    Modelo {i} ({modelo_wrapper.nome if hasattr(modelo_wrapper, 'nome') else type(modelo_wrapper).__name__}): MSE = {erro:.4f}") # Debug
 
                 if erro < menor_erro:
                     menor_erro = erro
@@ -219,3 +204,4 @@ class FrameworkDetector:
         except Exception as e:
             print(f"⚠️ Erro ao obter estado do detector {type(detector_wrapper).__name__}: {e}")
             return "NORMAL" # Fallback seguro
+

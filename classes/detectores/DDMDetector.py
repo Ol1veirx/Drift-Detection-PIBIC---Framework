@@ -2,9 +2,9 @@ from classes.superclasse.DetectorDriftBase import DetectorDriftBase
 from river.drift.binary import DDM
 
 class DDMDetector(DetectorDriftBase):
-    def __init__(self, threshold=0.05):
+    def __init__(self, threshold=0.05, **kwargs):
         super().__init__()
-        self.detector = DDM()
+        self.detector = DDM(**kwargs)
         self.threshold = threshold
 
     def atualizar(self, erro):
