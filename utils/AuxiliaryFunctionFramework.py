@@ -50,17 +50,6 @@ class AuxiliaryFunctionFramework:
                 pass
 
     @staticmethod
-    def add_model_to_pool(pool, model_to_add):
-        """Adiciona uma cópia do modelo ao pool com tratamento de erro."""
-        try:
-            model_copy = copy.deepcopy(model_to_add)
-            pool.append(model_copy)
-            print(f"  Adicionando cópia de '{AuxiliaryFunctionFramework.get_model_name(model_copy)}' ao pool.")
-            print(f"  Tamanho do pool agora: {len(pool)}")
-        except Exception as e:
-            print(f"  ⚠️ Erro ao adicionar modelo ao pool: {e}")
-
-    @staticmethod
     def select_and_evaluate_best_model(pool, window, scaler, threshold):
         """Seleciona e avalia o melhor modelo do pool."""
         print("  Selecionando melhor modelo do pool...")
@@ -115,14 +104,30 @@ class AuxiliaryFunctionFramework:
             return None
 
     @staticmethod
-    def determine_next_model(current_model, pool, window, scaler, threshold, min_samples_retrain):
+    def determine_next_model(current_model, pool, window, scaler, threshold, min_samples_retrain, max_pool_size):
         """
-        Lógica para decidir qual modelo usar após detectar uma mudança.
+        Lógica para decidir qual modelo usar após detectar uma mudança, incluindo adição ao pool e poda.
         Prioriza: Melhor do Pool (se bom) > Retreinamento > Melhor do Pool (fallback) > Modelo Atual.
         """
-        AuxiliaryFunctionFramework.add_model_to_pool(pool, current_model)
+        # --- Adiciona ao Pool ---
+        try:
+            model_copy = copy.deepcopy(current_model)
+            pool.append(model_copy)
+            print(f"  Adicionando cópia de '{AuxiliaryFunctionFramework.get_model_name(model_copy)}' ao pool.")
+            print(f"  Tamanho do pool antes da poda: {len(pool)}")
+        except Exception as e:
+            print(f"  ⚠️ Erro ao adicionar modelo ao pool: {e}")
+
+        # --- Poda do Pool (FIFO) ---
+        if len(pool) > max_pool_size:
+            removed_model = pool.pop(0) # Remove o mais antigo (primeiro da lista)
+            print(f"  Podando pool (FIFO). Removido: {AuxiliaryFunctionFramework.get_model_name(removed_model)}")
+            print(f"  Tamanho do pool após poda: {len(pool)}")
+
+        # --- Seleção e Avaliação ---
         best_pool_model, mse_best = AuxiliaryFunctionFramework.select_and_evaluate_best_model(pool, window, scaler, threshold)
 
+        # --- Lógica de Decisão (inalterada) ---
         # 1. Tentar usar o melhor modelo do pool se for bom o suficiente
         if best_pool_model and mse_best < threshold:
             print(f"  ✓ Ativando modelo do pool: {AuxiliaryFunctionFramework.get_model_name(best_pool_model)}")
@@ -151,19 +156,19 @@ class AuxiliaryFunctionFramework:
         return current_model
 
     @staticmethod
-    def handle_change_state(current_model, pool, window, scaler, threshold, min_samples_retrain, k_reset):
+    def handle_change_state(current_model, pool, window, scaler, threshold, min_samples_retrain, k_reset, max_pool_size):
         """
-        Executa ações para o estado de MUDANÇA: determina o próximo modelo e ajusta a janela.
+        Executa ações para o estado de MUDANÇA: determina o próximo modelo (incluindo poda) e ajusta a janela.
         Retorna: tuple (novo_modelo_ativo, nova_janela_modificada)
         """
         local_window = list(window) # Cria cópia para modificar
 
-        # Determina qual será o próximo modelo ativo
+        # Determina qual será o próximo modelo ativo, passando max_pool_size
         active_model = AuxiliaryFunctionFramework.determine_next_model(
-            current_model, pool, local_window, scaler, threshold, min_samples_retrain
+            current_model, pool, local_window, scaler, threshold, min_samples_retrain, max_pool_size # Passa max_pool_size
         )
 
-        # --- Reset Parcial da Janela ---
+        # --- Reset Parcial da Janela (inalterado) ---
         if len(local_window) > k_reset:
             local_window = local_window[-k_reset:]
 
