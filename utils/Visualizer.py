@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 class Visualizer:
@@ -248,3 +249,130 @@ class Visualizer:
             intervalos = [resultados["pontos_drift"][i+1] - resultados["pontos_drift"][i]
                         for i in range(n_drifts-1)]
             print(f"Intervalo médio entre drifts: {np.mean(intervalos):.1f} amostras")
+
+    def analisar_e_visualizar_resultados_stream(
+        initial_size,
+        erros_predicao_stream,
+        estados_detector_stream,
+        pontos_drift_detectados,
+        metricas_rmse_stream,
+        metricas_mae_stream,
+        metricas_r2_stream,
+        modelo_ativo_ao_longo_do_tempo,
+        detector_escolhido,
+        serie_escolhida
+    ):
+        """
+        Analisa e visualiza os resultados do processamento do stream,
+        incluindo erros, estados do detector, métricas de desempenho e uso de modelos.
+
+        Args:
+            initial_size (int): Tamanho do conjunto de treinamento inicial.
+            erros_predicao_stream (list): Lista de erros de predição absolutos.
+            estados_detector_stream (list): Lista de estados do detector ('NORMAL', 'ALERTA', 'MUDANÇA').
+            pontos_drift_detectados (list): Lista de índices onde drifts foram detectados.
+            metricas_rmse_stream (list): Lista de tuplas (índice, RMSE) calculadas periodicamente.
+            metricas_mae_stream (list): Lista de tuplas (índice, MAE) calculadas periodicamente.
+            metricas_r2_stream (list): Lista de tuplas (índice, R²) calculadas periodicamente.
+            modelo_ativo_ao_longo_do_tempo (list): Lista com os nomes dos modelos ativos em cada passo.
+            detector_escolhido (str): Nome do detector utilizado.
+            serie_escolhida (str): Nome da série temporal processada.
+        """
+        print("\n=== Análise dos Resultados do Stream ===")
+
+        # Criar eixo de tempo para os resultados do stream
+        stream_indices = np.arange(initial_size, initial_size + len(erros_predicao_stream))
+
+        # Verificar se há resultados para plotar
+        if not erros_predicao_stream:
+            print("Nenhum resultado do stream para analisar.")
+            return # Sai da função se não houver dados
+
+        # --- 1. Gráfico: Erros e Estados do Detector ---
+        plt.figure(figsize=(15, 10))
+
+        # Subplot 1: Erro de Predição
+        plt.subplot(3, 1, 1)
+        plt.plot(stream_indices, erros_predicao_stream, label='Erro de Predição (Absoluto)', color='red', alpha=0.7, linewidth=1)
+        plt.title(f'Erro de Predição e Detecção de Drift ({detector_escolhido}) na Série {serie_escolhida}')
+        plt.ylabel('Erro Absoluto')
+        plt.grid(True, alpha=0.5)
+        # Marcar drifts detectados
+        drift_label_added = False
+        for ponto in pontos_drift_detectados:
+            plt.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5, label='Drift Detectado' if not drift_label_added else "")
+            drift_label_added = True
+        # Adiciona legenda apenas se houver drifts
+        if drift_label_added:
+            plt.legend()
+
+        # Subplot 2: Estado do Detector
+        plt.subplot(3, 1, 2)
+        estado_map = {"NORMAL": 0, "ALERTA": 1, "MUDANÇA": 2}
+        estados_numericos = [estado_map.get(s, -1) for s in estados_detector_stream] # Mapeia estados para números
+        plt.plot(stream_indices, estados_numericos, label='Estado do Detector', color='green', drawstyle='steps-post') # 'steps-post' é bom para estados discretos
+        plt.yticks([0, 1, 2], ['NORMAL', 'ALERTA', 'MUDANÇA'])
+        plt.ylabel('Estado')
+        plt.grid(True, alpha=0.5)
+        for ponto in pontos_drift_detectados:
+            plt.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
+        plt.legend()
+
+        # --- 2. Gráfico: Métricas de Desempenho (RMSE, MAE, R²) ---
+        plt.subplot(3, 1, 3)
+        ax_primary = plt.gca() # Eixo Y primário para RMSE e MAE
+        legend_handles_primary = []
+
+        # Plotar RMSE se houver dados
+        if metricas_rmse_stream:
+            idx_rmse, val_rmse = zip(*metricas_rmse_stream)
+            line_rmse, = ax_primary.plot(idx_rmse, val_rmse, label='RMSE (Janela)', color='blue', marker='.', linestyle='-', markersize=4)
+            legend_handles_primary.append(line_rmse)
+        # Plotar MAE se houver dados
+        if metricas_mae_stream:
+            idx_mae, val_mae = zip(*metricas_mae_stream)
+            line_mae, = ax_primary.plot(idx_mae, val_mae, label='MAE (Janela)', color='purple', marker='.', linestyle='-', markersize=4)
+            legend_handles_primary.append(line_mae)
+
+        ax_primary.set_xlabel('Amostra (Índice Global)')
+        ax_primary.set_ylabel('RMSE / MAE', color='blue')
+        ax_primary.tick_params(axis='y', labelcolor='blue')
+        ax_primary.legend(handles=legend_handles_primary, loc='lower left')
+        ax_primary.grid(True, alpha=0.5)
+
+        # Plotar R² em eixo secundário se houver dados
+        if metricas_r2_stream:
+            ax_secondary = ax_primary.twinx() # Cria eixo Y secundário compartilhando o eixo X
+            idx_r2, val_r2 = zip(*metricas_r2_stream)
+            line_r2, = ax_secondary.plot(idx_r2, val_r2, label='R² (Janela)', color='orange', linestyle=':', marker='x', markersize=4)
+            ax_secondary.set_ylabel('R²', color='orange')
+            ax_secondary.tick_params(axis='y', labelcolor='orange')
+            ax_secondary.legend(handles=[line_r2], loc='lower right')
+            # Opcional: Definir limites para R² (ex: de 0 a 1 ou -1 a 1)
+            # ax_secondary.set_ylim(0, 1.1)
+
+        plt.title('Métricas de Desempenho (Calculadas em Janela Deslizante)')
+        # Marcar drifts detectados em ambos os eixos se houver eixo secundário
+        for ponto in pontos_drift_detectados:
+            ax_primary.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
+            if 'ax_secondary' in locals() and ax_secondary: # Verifica se ax_secondary foi criado
+                ax_secondary.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
+
+        plt.tight_layout() # Ajusta o layout para evitar sobreposição
+        plt.show() # Exibe a figura completa com os subplots
+
+        # --- 3. Análise Adicional (Impressão no Console) ---
+        if erros_predicao_stream:
+            # Calcula métricas globais sobre todo o stream
+            erros_np = np.array(erros_predicao_stream)
+            mse_global_stream = np.mean(erros_np**2)
+            mae_global_stream = np.mean(erros_np) # Erro já é absoluto no seu loop principal
+            print(f"\nMétricas Globais no Stream:")
+            print(f"  MSE: {mse_global_stream:.4f}")
+            print(f"  MAE: {mae_global_stream:.4f}")
+
+        if modelo_ativo_ao_longo_do_tempo:
+            # Conta quantas vezes cada modelo foi usado
+            modelos_usados = pd.Series(modelo_ativo_ao_longo_do_tempo).value_counts()
+            print("\nContagem de Uso dos Modelos Durante o Stream:")
+            print(modelos_usados)
