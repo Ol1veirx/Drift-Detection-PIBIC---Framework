@@ -260,7 +260,8 @@ class Visualizer:
         metricas_r2_stream,
         modelo_ativo_ao_longo_do_tempo,
         detector_escolhido,
-        serie_escolhida
+        serie_escolhida,
+        tamanho_pool_ao_longo_do_tempo
     ):
         """
         Analisa e visualiza os resultados do processamento do stream,
@@ -277,6 +278,7 @@ class Visualizer:
             modelo_ativo_ao_longo_do_tempo (list): Lista com os nomes dos modelos ativos em cada passo.
             detector_escolhido (str): Nome do detector utilizado.
             serie_escolhida (str): Nome da série temporal processada.
+            tamanho_pool_ao_longo_do_tempo (list): Lista com o tamanho do pool de modelos ao longo do tempo.
         """
         print("\n=== Análise dos Resultados do Stream ===")
 
@@ -286,80 +288,89 @@ class Visualizer:
         # Verificar se há resultados para plotar
         if not erros_predicao_stream:
             print("Nenhum resultado do stream para analisar.")
-            return # Sai da função se não houver dados
+        else:
+            plt.figure(figsize=(15, 12)) # Aumentar a altura da figura para acomodar 4 gráficos
 
-        # --- 1. Gráfico: Erros e Estados do Detector ---
-        plt.figure(figsize=(15, 10))
+            # --- Gráfico 1: Erro ---
+            plt.subplot(4, 1, 1) # <-- 4 linhas, 1 coluna, 1º gráfico
+            plt.plot(stream_indices, erros_predicao_stream, label='Erro de Predição (Absoluto)', color='red', alpha=0.7)
+            plt.title(f'Erro, Estado, Métricas e Pool ({detector_escolhido}) na Série {serie_escolhida}')
+            plt.ylabel('Erro Absoluto')
+            plt.grid(True, alpha=0.5)
+            drift_label_added = False
+            for ponto in pontos_drift_detectados:
+                plt.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5, label='Drift Detectado' if not drift_label_added else "")
+                drift_label_added = True
+            if drift_label_added: plt.legend()
+            plt.gca().axes.xaxis.set_ticklabels([]) # Oculta rótulos do eixo x para gráficos superiores
 
-        # Subplot 1: Erro de Predição
-        plt.subplot(3, 1, 1)
-        plt.plot(stream_indices, erros_predicao_stream, label='Erro de Predição (Absoluto)', color='red', alpha=0.7, linewidth=1)
-        plt.title(f'Erro de Predição e Detecção de Drift ({detector_escolhido}) na Série {serie_escolhida}')
-        plt.ylabel('Erro Absoluto')
-        plt.grid(True, alpha=0.5)
-        # Marcar drifts detectados
-        drift_label_added = False
-        for ponto in pontos_drift_detectados:
-            plt.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5, label='Drift Detectado' if not drift_label_added else "")
-            drift_label_added = True
-        # Adiciona legenda apenas se houver drifts
-        if drift_label_added:
+            # --- Gráfico 2: Estado do Detector ---
+            plt.subplot(4, 1, 2) # <-- 4 linhas, 1 coluna, 2º gráfico
+            estado_map = {"NORMAL": 0, "ALERTA": 1, "MUDANÇA": 2}
+            estados_numericos = [estado_map.get(s, -1) for s in estados_detector_stream]
+            plt.plot(stream_indices, estados_numericos, label='Estado do Detector', color='green')
+            plt.yticks([0, 1, 2], ['NORMAL', 'ALERTA', 'MUDANÇA'])
+            plt.ylabel('Estado')
+            plt.grid(True, alpha=0.5)
+            for ponto in pontos_drift_detectados:
+                plt.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
             plt.legend()
+            plt.gca().axes.xaxis.set_ticklabels([]) # Oculta rótulos do eixo x
 
-        # Subplot 2: Estado do Detector
-        plt.subplot(3, 1, 2)
-        estado_map = {"NORMAL": 0, "ALERTA": 1, "MUDANÇA": 2}
-        estados_numericos = [estado_map.get(s, -1) for s in estados_detector_stream] # Mapeia estados para números
-        plt.plot(stream_indices, estados_numericos, label='Estado do Detector', color='green', drawstyle='steps-post') # 'steps-post' é bom para estados discretos
-        plt.yticks([0, 1, 2], ['NORMAL', 'ALERTA', 'MUDANÇA'])
-        plt.ylabel('Estado')
-        plt.grid(True, alpha=0.5)
-        for ponto in pontos_drift_detectados:
-            plt.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
-        plt.legend()
+            # --- Gráfico 3: Métricas de Desempenho ---
+            plt.subplot(4, 1, 3) # <-- 4 linhas, 1 coluna, 3º gráfico
+            ax_primary = plt.gca()
+            legend_handles_primary = []
+            if metricas_rmse_stream:
+                idx_rmse, val_rmse = zip(*metricas_rmse_stream)
+                line_rmse, = ax_primary.plot(idx_rmse, val_rmse, label='RMSE (Janela)', color='blue')
+                legend_handles_primary.append(line_rmse)
+            if metricas_mae_stream:
+                idx_mae, val_mae = zip(*metricas_mae_stream)
+                line_mae, = ax_primary.plot(idx_mae, val_mae, label='MAE (Janela)', color='purple')
+                legend_handles_primary.append(line_mae)
+            ax_primary.set_ylabel('RMSE / MAE', color='blue')
+            ax_primary.tick_params(axis='y', labelcolor='blue')
+            ax_primary.legend(handles=legend_handles_primary, loc='lower left')
+            ax_primary.grid(True, alpha=0.5)
+            ax_primary.set_title('Métricas de Desempenho (Calculadas em Janela Deslizante)') # Adiciona título específico
+            ax_primary.axes.xaxis.set_ticklabels([]) # Oculta rótulos do eixo x
 
-        # --- 2. Gráfico: Métricas de Desempenho (RMSE, MAE, R²) ---
-        plt.subplot(3, 1, 3)
-        ax_primary = plt.gca() # Eixo Y primário para RMSE e MAE
-        legend_handles_primary = []
+            ax_secondary = None # Inicializa para verificar depois
+            if metricas_r2_stream:
+                ax_secondary = ax_primary.twinx()
+                idx_r2, val_r2 = zip(*metricas_r2_stream)
+                line_r2, = ax_secondary.plot(idx_r2, val_r2, label='R² (Janela)', color='orange', linestyle=':')
+                ax_secondary.set_ylabel('R²', color='orange')
+                ax_secondary.tick_params(axis='y', labelcolor='orange')
+                ax_secondary.legend(handles=[line_r2], loc='lower right')
 
-        # Plotar RMSE se houver dados
-        if metricas_rmse_stream:
-            idx_rmse, val_rmse = zip(*metricas_rmse_stream)
-            line_rmse, = ax_primary.plot(idx_rmse, val_rmse, label='RMSE (Janela)', color='blue', marker='.', linestyle='-', markersize=4)
-            legend_handles_primary.append(line_rmse)
-        # Plotar MAE se houver dados
-        if metricas_mae_stream:
-            idx_mae, val_mae = zip(*metricas_mae_stream)
-            line_mae, = ax_primary.plot(idx_mae, val_mae, label='MAE (Janela)', color='purple', marker='.', linestyle='-', markersize=4)
-            legend_handles_primary.append(line_mae)
+            for ponto in pontos_drift_detectados:
+                ax_primary.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
+                if ax_secondary: ax_secondary.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
 
-        ax_primary.set_xlabel('Amostra (Índice Global)')
-        ax_primary.set_ylabel('RMSE / MAE', color='blue')
-        ax_primary.tick_params(axis='y', labelcolor='blue')
-        ax_primary.legend(handles=legend_handles_primary, loc='lower left')
-        ax_primary.grid(True, alpha=0.5)
 
-        # Plotar R² em eixo secundário se houver dados
-        if metricas_r2_stream:
-            ax_secondary = ax_primary.twinx() # Cria eixo Y secundário compartilhando o eixo X
-            idx_r2, val_r2 = zip(*metricas_r2_stream)
-            line_r2, = ax_secondary.plot(idx_r2, val_r2, label='R² (Janela)', color='orange', linestyle=':', marker='x', markersize=4)
-            ax_secondary.set_ylabel('R²', color='orange')
-            ax_secondary.tick_params(axis='y', labelcolor='orange')
-            ax_secondary.legend(handles=[line_r2], loc='lower right')
-            # Opcional: Definir limites para R² (ex: de 0 a 1 ou -1 a 1)
-            # ax_secondary.set_ylim(0, 1.1)
+            # --- Gráfico 4: Tamanho do Pool ---
+            plt.subplot(4, 1, 4) # <-- 4 linhas, 1 coluna, 4º gráfico
+            if tamanho_pool_ao_longo_do_tempo:
+                plt.plot(stream_indices, tamanho_pool_ao_longo_do_tempo, label='Tamanho do Pool', color='cyan')
+                plt.ylabel('Número de Modelos')
+                plt.xlabel('Amostra (Índice Global)') # Eixo X apenas no último gráfico
+                plt.title('Evolução do Tamanho do Pool de Modelos')
+                plt.grid(True, alpha=0.5)
+                for ponto in pontos_drift_detectados:
+                    plt.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
+                # Ajustar limites do eixo Y para inteiros se apropriado
+                max_pool_val = max(tamanho_pool_ao_longo_do_tempo) if tamanho_pool_ao_longo_do_tempo else 1
+                plt.ylim(0, max_pool_val + 1)
+                plt.yticks(range(0, int(max_pool_val + 1))) # Garante ticks inteiros
+                plt.legend()
+            else:
+                plt.text(0.5, 0.5, 'Dados do tamanho do pool não disponíveis', horizontalalignment='center', verticalalignment='center', transform=plt.gca().transAxes)
 
-        plt.title('Métricas de Desempenho (Calculadas em Janela Deslizante)')
-        # Marcar drifts detectados em ambos os eixos se houver eixo secundário
-        for ponto in pontos_drift_detectados:
-            ax_primary.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
-            if 'ax_secondary' in locals() and ax_secondary: # Verifica se ax_secondary foi criado
-                ax_secondary.axvline(x=ponto, color='black', linestyle='--', linewidth=1.5)
 
-        plt.tight_layout() # Ajusta o layout para evitar sobreposição
-        plt.show() # Exibe a figura completa com os subplots
+            plt.tight_layout() # Ajusta o espaçamento para evitar sobreposição de títulos/rótulos
+            plt.show()
 
         # --- 3. Análise Adicional (Impressão no Console) ---
         if erros_predicao_stream:
