@@ -3,6 +3,7 @@ import copy
 import time
 from tqdm.notebook import tqdm
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.linear_model import LinearRegression
 
 class StreamProcessor:
     """
@@ -28,23 +29,6 @@ class StreamProcessor:
                 max_pool_size=5):
         """
         Inicializa o processador de stream com os parâmetros necessários.
-
-        Args:
-            modelo_inicial: Modelo inicial treinado
-            detector_wrapper: Detector de drift escolhido
-            scaler: Scaler para normalização dos dados
-            janela_dados_recentes: Lista inicial de dados recentes (x, y)
-            tipo_modelo_global: Tipo de modelo a ser usado para retreino
-            tamanho_janela: Tamanho máximo da janela de dados recentes
-            intervalo_adicao_pool: A cada quantas amostras adiciona modelo ao pool
-            observacoes_novo_conceito: Quantas observações coletar após drift
-            min_diversidade_erro: Diferença mínima de MSE para considerar modelo diverso
-            n_clusters_regimes: Número de regimes diferentes a identificar
-            limiar_degradacao: Limiar para detecção de degradação de desempenho
-            threshold_melhoria_alerta: Quanto melhor deve ser o modelo para troca no alerta
-            metrics_interval: Intervalo para cálculo de métricas
-            min_samples_for_metrics: Mínimo de amostras para calcular métricas
-            max_pool_size: Tamanho máximo do pool por regime
         """
         # Modelos e detectores
         self.modelo_atual = modelo_inicial
@@ -73,6 +57,7 @@ class StreamProcessor:
         self.drift_detectado_flag = False
         self.contador_novo_conceito = 0
         self.buffer_novo_conceito = []
+        self.modelo_transicao = None
 
         # Métricas e resultados
         self.erros_predicao_stream = []
@@ -85,19 +70,107 @@ class StreamProcessor:
         self.modelo_ativo_ao_longo_do_tempo = []
         self.tamanho_pool_ao_longo_do_tempo = []
 
+    def _adicionar_decomposicao(self, janela_dados, n_recente=50):
+        """Adiciona features baseadas em decomposição de série temporal"""
+        if len(janela_dados) < n_recente:
+            return None, None  # Não há dados suficientes
+
+        # Extrai apenas os valores target da janela, garantindo que seja um array 1D simples
+        y_recente = np.array([float(y) for _, y in janela_dados[-n_recente:]])
+
+        # Verifica se o array está no formato correto antes de prosseguir
+        if len(y_recente.shape) != 1:
+            return None, None  # Formato inválido
+
+        # Usa uma média móvel simples em vez de convolução para evitar problemas
+        try:
+            # Calcula média móvel com janela de 5 elementos
+            window_size = min(5, len(y_recente))
+            tendencia = np.zeros_like(y_recente)
+            for i in range(len(y_recente)):
+                start = max(0, i - window_size + 1)
+                tendencia[i] = np.mean(y_recente[start:i+1])
+
+            # Retorna o último valor da tendência e a inclinação
+            if len(tendencia) >= 2:
+                inclinacao = tendencia[-1] - tendencia[-2]
+                return tendencia[-1], inclinacao
+        except Exception as e:
+            print(f"Aviso: Erro ao calcular decomposição: {e}")
+
+        return None, None
+
+    def _prever_ensemble(self, x_scaled, janela_recente, estado="NORMAL"):
+        """Realiza previsão usando ensemble de modelos quando apropriado"""
+        from classes.frameworkDetector.framework_detector import FrameworkDetector
+
+        # Em estado normal usa apenas o modelo atual
+        if estado == "NORMAL":
+            return self.modelo_atual.prever(x_scaled)[0]
+
+        # Durante ALERTA ou MUDANÇA, usa ensemble dos melhores modelos
+        pool_atual = self.pools_por_regime.get(self.regime_atual, [])
+        if len(pool_atual) <= 1:
+            return self.modelo_atual.prever(x_scaled)[0]
+
+        # Seleciona os top 3 modelos do pool (ou menos se não houver 3)
+        erros_modelos = []
+        for modelo in pool_atual:
+            erro = FrameworkDetector.desempenho(modelo, janela_recente, self.scaler)
+            erros_modelos.append((modelo, erro))
+
+        # Ordena por erro (menor primeiro)
+        erros_modelos.sort(key=lambda x: x[1])
+        top_modelos = erros_modelos[:min(3, len(erros_modelos))]
+
+        # Pesos baseados no inverso do erro (quanto menor o erro, maior o peso)
+        pesos = [1/(erro+0.001) for _, erro in top_modelos]
+        soma_pesos = sum(pesos)
+        pesos_normalizados = [p/soma_pesos for p in pesos]
+
+        # Previsão ponderada
+        predicao = 0
+        for (modelo, _), peso in zip(top_modelos, pesos_normalizados):
+            predicao += modelo.prever(x_scaled)[0] * peso
+
+        return predicao
+
+    def _criar_modelo_transicao(self, janela_recente):
+        """Cria um modelo simples e rápido para período de transição"""
+        if len(janela_recente) < 30:
+            return None
+
+        X_janela = np.array([x for x, _ in janela_recente[-30:]])  # últimas 30 amostras
+        y_janela = np.array([y for _, y in janela_recente[-30:]])
+
+        modelo_transicao = LinearRegression()  # Modelo simples e rápido
+        modelo_transicao.fit(self.scaler.transform(X_janela), y_janela)
+
+        # Wrapper para compatibilidade com a interface
+        class ModeloTransicao:
+            def __init__(self, modelo):
+                self.modelo = modelo
+                self.nome = "ModeloTransicao"
+
+            def prever(self, X):
+                return self.modelo.predict(X)
+
+        return ModeloTransicao(modelo_transicao)
+
+    def _transicao_suave(self, modelo_antigo, modelo_novo, x_t_scaled, pct_transicao):
+        """Faz transição suave entre modelos usando interpolação"""
+        pred_antigo = modelo_antigo.prever(x_t_scaled)[0]
+        pred_novo = modelo_novo.prever(x_t_scaled)[0]
+
+        # Quanto maior o pct_transicao, mais peso ao modelo novo
+        return pred_antigo * (1 - pct_transicao) + pred_novo * pct_transicao
+
     def processar_stream(self, X_stream, Y_stream, initial_size, detector_escolhido):
         """
         Processa o stream de dados, detectando drifts e adaptando modelos.
-
-        Args:
-            X_stream: Array de features do stream
-            Y_stream: Array de targets do stream
-            initial_size: Índice inicial (após o conjunto de treinamento)
-            detector_escolhido: Nome do detector em uso (para logging)
-
-        Returns:
-            dict: Dicionário com todos os resultados e métricas
         """
+        from classes.frameworkDetector.framework_detector import FrameworkDetector
+
         print("\n=== Iniciando Processamento do Stream ===")
         print(f"Processando {len(X_stream)} amostras...")
 
@@ -110,7 +183,36 @@ class StreamProcessor:
             # --- 1. Predição com o modelo atual ---
             x_t_reshaped = x_t.reshape(1, -1)
             x_t_scaled = self.scaler.transform(x_t_reshaped)
-            y_pred = self.modelo_atual.prever(x_t_scaled)[0]
+
+            # Obter estado do detector antes de usar para previsão
+            estado = FrameworkDetector.get_state(self.detector_wrapper)
+            self.estados_detector_stream.append(estado)
+
+            # Adicionando tendência para melhorar previsão
+            tendencia, inclinacao = self._adicionar_decomposicao(self.janela_dados_recentes)
+
+            # Previsão adaptativa baseada no estado
+            if self.drift_detectado_flag:
+                # Durante coleta pós-drift, usa modelo de transição ou ensemble
+                if not hasattr(self, 'modelo_transicao') or self.modelo_transicao is None or i % 10 == 0:  # atualiza a cada 10 passos
+                    self.modelo_transicao = self._criar_modelo_transicao(self.janela_dados_recentes)
+
+                # Se temos modelo de transição, use-o
+                if self.modelo_transicao:
+                    # Interpola entre modelo atual e de transição
+                    pct_transicao = min(self.contador_novo_conceito / self.observacoes_novo_conceito, 0.7)
+                    y_pred = self._transicao_suave(self.modelo_atual, self.modelo_transicao, x_t_scaled, pct_transicao)
+                else:
+                    # Se não foi possível criar modelo de transição, use o atual
+                    y_pred = self.modelo_atual.prever(x_t_scaled)[0]
+            else:
+                # Em operação normal, usa modelo atual ou ensemble conforme estado
+                y_pred = self._prever_ensemble(x_t_scaled, self.janela_dados_recentes, estado)
+
+            # Aplica ajuste de tendência se disponível
+            if tendencia is not None and abs(tendencia) > 0.1:
+                y_pred = y_pred * 0.9 + tendencia * 0.1  # Suave incorporação da tendência
+
             self.predicoes_stream.append(y_pred)
 
             # --- 2. Cálculo do Erro e Atualização do Detector ---
@@ -119,12 +221,7 @@ class StreamProcessor:
             self.detector_wrapper.atualizar(valor_ou_erro_para_detector)
             self.erros_predicao_stream.append(erro)
 
-            # --- 3. Obter Estado do Detector e Identificar Regime ---
-            from classes.frameworkDetector.framework_detector import FrameworkDetector
-            estado = FrameworkDetector.get_state(self.detector_wrapper)
-            self.estados_detector_stream.append(estado)
-
-            # Identificação periódica de regime
+            # --- 3. Identificar Regime ---
             self._identificar_regime(i)
 
             # --- 4. Lógica de Adaptação ---
@@ -210,6 +307,10 @@ class StreamProcessor:
         self.contador_novo_conceito += 1
         self.buffer_novo_conceito.append((x_t, y_t))
 
+        # NOVA FUNCIONALIDADE: Continue adaptando o modelo atual durante a coleta
+        if hasattr(self.modelo_atual, "partial_fit"):
+            self.modelo_atual.partial_fit(x_t_scaled, np.array([y_t]))
+
         if self.contador_novo_conceito >= self.observacoes_novo_conceito:
             # Retreinamento após coletar dados suficientes
             print(f"\n--- Retreinando Modelo com {self.observacoes_novo_conceito} obs. do novo conceito ---")
@@ -248,12 +349,11 @@ class StreamProcessor:
             self.contador_novo_conceito = 0
             self.buffer_novo_conceito = []
             self.contador_adicao_pool = 0
+            self.modelo_transicao = None  # Limpa o modelo de transição
             print("--- Retomando operação normal ---")
 
     def _processar_estado_normal(self, estado, indice_global, x_t, y_t, x_t_scaled, i, detector_escolhido):
         """Processa os estados normais (NORMAL, ALERTA, MUDANÇA)"""
-        from classes.frameworkDetector.framework_detector import FrameworkDetector
-
         if estado == "MUDANÇA":
             self._processar_mudanca(indice_global, x_t, y_t, detector_escolhido)
         elif estado == "ALERTA":
@@ -295,7 +395,7 @@ class StreamProcessor:
             self.modelo_a_manter_do_pool_anterior = copy.deepcopy(self.modelo_atual)
             print("  ⚠️ Mantendo modelo atual (pool sem alternativas)")
 
-        # Reorganiza o pool após drift
+        # Reorganiza o pool após drift (mantém modelos bons, remove piores)
         self.pools_por_regime[self.regime_atual] = FrameworkDetector.gerenciar_pool(
             pool_atual, self.janela_dados_recentes, self.scaler,
             estado_detector="MUDANÇA", modelo_atual=self.modelo_atual, max_pool_size=self.max_pool_size
@@ -304,6 +404,10 @@ class StreamProcessor:
         # Inicia coleta para novo conceito
         self.drift_detectado_flag = True
         self.buffer_novo_conceito = [(x_t, y_t)]
+
+        # Cria modelo de transição logo quando detecta drift
+        self.modelo_transicao = self._criar_modelo_transicao(self.janela_dados_recentes)
+
         print(f"  Iniciando coleta para retreino ({self.observacoes_novo_conceito} amostras)")
 
     def _processar_alerta(self, indice_global, x_t_scaled, y_t, i):

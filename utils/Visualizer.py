@@ -388,67 +388,54 @@ class Visualizer:
             print("\nContagem de Uso dos Modelos Durante o Stream:")
             print(modelos_usados)
 
-    def visualizar_previsoes_vs_real(
-        initial_size,
-        Y_stream,
-        predicoes_stream,
-        pontos_drift_detectados,
-        serie_escolhida
-    ):
+    @staticmethod
+    def visualizar_previsoes_vs_real(initial_size, Y_stream, predicoes_stream, pontos_drift_detectados, serie_escolhida):
         """
-        Visualiza os valores reais da série temporal (stream) vs. as previsões do modelo.
+        Visualiza as previsões do modelo vs. valores reais ao longo da série temporal.
 
         Args:
-            initial_size (int): Tamanho do conjunto de treinamento inicial.
-            Y_stream (np.array): Valores reais do target durante o stream.
-            predicoes_stream (list): Lista de previsões feitas pelo modelo durante o stream.
-            pontos_drift_detectados (list): Lista de índices onde drifts foram detectados.
-            serie_escolhida (str): Nome da série temporal processada.
+            initial_size: Tamanho do conjunto de treinamento inicial
+            Y_stream: Valores reais do stream
+            predicoes_stream: Previsões feitas pelo modelo
+            pontos_drift_detectados: Pontos onde drifts foram detectados
+            serie_escolhida: Nome da série temporal
         """
-        print("\n=== Visualização: Valores Reais vs. Previsões ===")
-
-        # Garante que os tamanhos correspondem, caso algo dê errado
-        min_len = min(len(Y_stream), len(predicoes_stream))
-        if min_len == 0:
-            print("Nenhum dado de stream ou predição para plotar.")
-            return
-        if len(Y_stream) != len(predicoes_stream):
-            print(f"⚠️ AVISO: Discrepância nos tamanhos! Y_stream: {len(Y_stream)}, Predições: {len(predicoes_stream)}. Usando {min_len} pontos.")
-            Y_stream = Y_stream[:min_len]
-            predicoes_stream = predicoes_stream[:min_len]
-
-        # Criar eixo de tempo para os resultados do stream
-        stream_indices = np.arange(initial_size, initial_size + min_len)
-
         plt.figure(figsize=(15, 6))
+
+        # Converter índices para escala global
+        stream_indices = [initial_size + i for i in range(len(Y_stream))]
+
+        # Garantir que as previsões sejam valores escalares
+        predicoes_stream_flat = []
+        for pred in predicoes_stream:
+            # Se for um array ou lista, pegar o primeiro elemento
+            if isinstance(pred, (list, np.ndarray)):
+                predicoes_stream_flat.append(float(pred[0]) if len(pred) > 0 else float('nan'))
+            else:
+                # Caso seja um escalar, converter para float
+                predicoes_stream_flat.append(float(pred))
 
         # Plotar os valores reais
         plt.plot(stream_indices, Y_stream, label='Valor Real', color='blue', alpha=0.7, linewidth=1.5)
 
-        # Plotar as previsões
-        plt.plot(stream_indices, predicoes_stream, label='Previsão do Modelo', color='red', alpha=0.8, linestyle='--', linewidth=1.5)
+        # Plotar as previsões (usando a versão normalizada)
+        plt.plot(stream_indices, predicoes_stream_flat, label='Previsão do Modelo', color='red', alpha=0.8, linestyle='--', linewidth=1.5)
 
         plt.title(f'Valor Real vs. Previsão do Modelo na Série {serie_escolhida}')
         plt.xlabel('Amostra (Índice Global)')
-        # Ajuste o ylabel conforme a escala dos seus dados (normalizados ou originais)
         plt.ylabel('Valor')
-        plt.grid(True, alpha=0.5)
+        plt.grid(True, alpha=0.3)
         plt.legend()
 
-        # Marcar drifts detectados
-        drift_label_added = False
-        for ponto in pontos_drift_detectados:
-            # Garante que o ponto de drift está dentro do intervalo plotado
-            if initial_size <= ponto < initial_size + min_len:
-                plt.axvline(x=ponto, color='black', linestyle=':', linewidth=1.5, label='Drift Detectado' if not drift_label_added else "")
-                drift_label_added = True
-        # Adiciona legenda de drift apenas se houver drifts
-        if drift_label_added:
-            # Pega as legendas existentes e adiciona a de drift
-            handles, labels = plt.gca().get_legend_handles_labels()
-            # Recria a legenda para garantir a ordem correta
-            plt.legend(handles=handles, labels=labels)
+        # Adicionar marcações verticais para os drifts detectados
+        for drift_point in pontos_drift_detectados:
+            plt.axvline(x=drift_point, color='black', linestyle=':', alpha=0.7, linewidth=1.2)
 
+        # Adicionar texto indicando os drifts
+        if pontos_drift_detectados:
+            plt.text(0.02, 0.02, 'Drift Detectado', transform=plt.gca().transAxes,
+                    color='black', alpha=0.7, verticalalignment='bottom',
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
 
         plt.tight_layout()
         plt.show()
