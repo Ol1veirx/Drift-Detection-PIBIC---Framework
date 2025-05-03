@@ -1,5 +1,5 @@
 import numpy as np
-from classes.superclasse.ModeloBase import ModeloBase
+from regressores.ModeloBase import ModeloBase
 
 class ModelTrainer:
     """

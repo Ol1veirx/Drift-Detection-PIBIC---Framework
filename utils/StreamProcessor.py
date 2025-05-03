@@ -5,14 +5,14 @@ import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from tqdm.notebook import tqdm
 
-from classes.frameworkClasses.alert_state_processor import AlertStateProcessor
-from classes.frameworkClasses.change_state_processor import ChangeStateProcessor
-from classes.frameworkClasses.drift_collection_processor import DriftCollectionProcessor
-from classes.frameworkClasses.drift_prediction_strategy import DriftPredictionStrategy
-from classes.frameworkClasses.normal_state_processor import NormalStateProcessor
-from classes.frameworkClasses.standard_prediction_strategy import StandardPredictionStrategy
-from classes.modelosOffline.LinearRegressionModelo import LinearRegressionModelo
-from classes.modelosOffline import LinearRegressionModelo
+from frameworkClasses.alert_state_processor import AlertStateProcessor
+from frameworkClasses.change_state_processor import ChangeStateProcessor
+from frameworkClasses.drift_collection_processor import DriftCollectionProcessor
+from frameworkClasses.drift_prediction_strategy import DriftPredictionStrategy
+from frameworkClasses.normal_state_processor import NormalStateProcessor
+from frameworkClasses.standard_prediction_strategy import StandardPredictionStrategy
+from regressores.modelosOffline.LinearRegressionModelo import LinearRegressionModelo
+from regressores.modelosOffline import LinearRegressionModelo
 
 
 class StreamProcessor:
@@ -136,7 +136,7 @@ class StreamProcessor:
 
     def _identificar_regime(self, i):
         """Identifica e gerencia regimes nos dados"""
-        from classes.frameworkDetector.framework_detector import FrameworkDetector
+        from frameworkDetector.framework_detector import FrameworkDetector
 
         if i % 20 == 0 and len(self.janela_dados_recentes) >= self.min_samples_for_metrics:
             regime_anterior = self.regime_atual
@@ -156,7 +156,7 @@ class StreamProcessor:
 
     def _calcular_metricas_periodicas(self, i, indice_global, estado):
         """Calcula métricas e detecta degradação de desempenho periodicamente"""
-        from classes.frameworkDetector.framework_detector import FrameworkDetector
+        from frameworkDetector.framework_detector import FrameworkDetector
 
         if i > 0 and i % self.metrics_interval == 0 and len(self.janela_dados_recentes) >= self.min_samples_for_metrics:
             X_janela_eval = np.array([x for x, _ in self.janela_dados_recentes])
@@ -194,7 +194,7 @@ class StreamProcessor:
 
     def processar_stream(self, X_stream, Y_stream, initial_size, detector_escolhido):
         """Processa o stream de dados, detectando drifts e adaptando modelos"""
-        from classes.frameworkDetector.framework_detector import FrameworkDetector
+        from frameworkDetector.framework_detector import FrameworkDetector
 
         print("\n=== Iniciando Processamento do Stream ===")
         print(f"Processando {len(X_stream)} amostras...")
