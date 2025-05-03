@@ -3,6 +3,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler
 import traceback
 import copy
+from sklearn.cluster import KMeans
 
 # Importar wrappers de modelo
 from regressores.modelosOffline.KneighborsRegressorModelo import KNeighborsRegressorModelo
@@ -35,20 +36,20 @@ class FrameworkDetector:
         modelo_wrapper_instancia.treinar(X_scaled, y)
 
         if modelo_wrapper_instancia.modelo is not None:
-            print(f"  ✅ Modelo {nome_modelo} treinado com sucesso")
+            print(f"  Modelo {nome_modelo} treinado com sucesso")
             modelo_treinado = modelo_wrapper_instancia
         else:
             print(f"  ❌ Falha ao treinar modelo {nome_modelo}")
 
         if modelo_treinado is None:
-            print("\n⚠️ AVISO: Modelo inicial não treinado. Tentando Regressão Linear como fallback...")
+            print("\nAVISO: Modelo inicial não treinado. Tentando Regressão Linear como fallback...")
             modelo_fallback_wrapper = LinearRegressionModelo()
             modelo_fallback_wrapper.treinar(X_scaled, y)
             if modelo_fallback_wrapper.modelo is not None:
                 modelo_treinado = modelo_fallback_wrapper
-                print("  ✅ Modelo de fallback (Regressão Linear) treinado com sucesso.")
+                print("  Modelo de fallback (Regressão Linear) treinado com sucesso.")
             else:
-                 print("  ❌ Erro crítico: Não foi possível treinar o modelo de fallback.")
+                 print("  Erro crítico: Não foi possível treinar o modelo de fallback.")
 
         return modelo_treinado, scaler
 
@@ -60,7 +61,7 @@ class FrameworkDetector:
         print(f"  Treinando novo modelo ({nome_modelo}) com {len(X_novo)} amostras do novo conceito...")
 
         if len(X_novo) == 0:
-            print("  ❌ Erro: Nenhum dado fornecido para treinar o novo conceito.")
+            print("  Erro: Nenhum dado fornecido para treinar o novo conceito.")
             return None
 
         # Escala e treina o novo modelo
@@ -69,10 +70,10 @@ class FrameworkDetector:
         modelo_wrapper_instancia.treinar(X_novo_scaled, y_novo.ravel())
 
         if modelo_wrapper_instancia.modelo is not None:
-            print(f"  ✅ Novo modelo ({nome_modelo}) treinado com sucesso.")
+            print(f"  Novo modelo ({nome_modelo}) treinado com sucesso.")
             modelo_novo_conceito = modelo_wrapper_instancia
         else:
-            print(f"  ❌ Falha ao treinar modelo {nome_modelo} para novo conceito.")
+            print(f"  Falha ao treinar modelo {nome_modelo} para novo conceito.")
 
         return modelo_novo_conceito
 
@@ -81,10 +82,10 @@ class FrameworkDetector:
     def selecionar_melhor_modelo(pool_modelos, janela_dados, scaler):
         """Seleciona o melhor modelo do pool com base no MSE na janela."""
         if not pool_modelos:
-            print("⚠️ AVISO: Pool de modelos vazio para seleção!")
+            print("AVISO: Pool de modelos vazio para seleção!")
             return None
         if not janela_dados:
-            print("⚠️ AVISO: Janela de dados vazia para seleção!")
+            print("AVISO: Janela de dados vazia para seleção!")
             return None
 
         X_janela_list = [x for x, y in janela_dados]
@@ -179,11 +180,11 @@ class FrameworkDetector:
 
             if modelo_similar:
                 if erro_novo < FrameworkDetector.desempenho(modelo_similar, janela_dados, scaler):
-                    print(f"  ⚠️ Substituindo modelo similar de qualidade inferior no pool")
+                    print(f"  Substituindo modelo similar de qualidade inferior no pool")
                     pool_modelos.remove(modelo_similar)
                     pool_modelos.append(novo_modelo)
                 else:
-                    print(f"  ℹ️ Não adicionando modelo: similar a um existente e não melhor")
+                    print(f"  ℹNão adicionando modelo: similar a um existente e não melhor")
                     return pool_modelos
             else:
                 pool_modelos.append(novo_modelo)
@@ -207,15 +208,13 @@ class FrameworkDetector:
                     return pool_modelos
 
             modelo_removido = pool_modelos.pop(0)
-            print(f"  🗑️ Removido o modelo mais antigo do pool")
+            print(f"  Removido o modelo mais antigo do pool")
 
         return pool_modelos
 
     @staticmethod
     def identificar_regime(janela_dados, n_clusters=3):
         """Identifica o regime atual baseado na janela de dados recentes."""
-        from sklearn.cluster import KMeans
-
         if not janela_dados or len(janela_dados) < n_clusters:
             return 0
 
@@ -261,7 +260,7 @@ class FrameworkDetector:
         melhor_modelo = FrameworkDetector.selecionar_melhor_modelo(
             pool_do_regime, janela_dados, scaler)
 
-        print(f"  🔍 Avaliando pool do regime {regime_busca} ({len(pool_do_regime)} modelos)")
+        print(f"  Avaliando pool do regime {regime_busca} ({len(pool_do_regime)} modelos)")
         return melhor_modelo
 
     @staticmethod
@@ -277,7 +276,7 @@ class FrameworkDetector:
                     FrameworkDetector.adicionar_ao_pool(
                         pool_modelos, variante, max_pool_size,
                         janela_dados, scaler, min_diversidade_erro=0.03)
-                    print(f"  🧬 Variante do modelo atual adicionada ao pool em estado de ALERTA")
+                    print(f"  Variante do modelo atual adicionada ao pool em estado de ALERTA")
 
         elif estado_detector == "MUDANÇA":
             melhor = FrameworkDetector.selecionar_melhor_modelo(pool_modelos, janela_dados, scaler)
@@ -289,7 +288,7 @@ class FrameworkDetector:
                         erro_melhor = FrameworkDetector.desempenho(melhor, janela_dados, scaler)
                         if erro < erro_melhor * 1.5:
                             novos_modelos.append(modelo)
-                print(f"  🔄 Pool reconfigurado após MUDANÇA: {len(novos_modelos)}/{len(pool_modelos)} modelos mantidos")
+                print(f"  Pool reconfigurado após MUDANÇA: {len(novos_modelos)}/{len(pool_modelos)} modelos mantidos")
                 return novos_modelos
 
         return pool_modelos

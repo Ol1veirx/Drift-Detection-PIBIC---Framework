@@ -9,10 +9,11 @@ from frameworkClasses.alert_state_processor import AlertStateProcessor
 from frameworkClasses.change_state_processor import ChangeStateProcessor
 from frameworkClasses.drift_collection_processor import DriftCollectionProcessor
 from frameworkClasses.drift_prediction_strategy import DriftPredictionStrategy
+from frameworkClasses.modelo_transicao import ModeloTransicao
 from frameworkClasses.normal_state_processor import NormalStateProcessor
 from frameworkClasses.standard_prediction_strategy import StandardPredictionStrategy
 from regressores.modelosOffline.LinearRegressionModelo import LinearRegressionModelo
-from regressores.modelosOffline import LinearRegressionModelo
+from frameworkDetector.framework_detector import FrameworkDetector
 
 
 class StreamProcessor:
@@ -90,23 +91,21 @@ class StreamProcessor:
         if len(janela_dados) < n_recente:
             return None, None
 
-        try:
-            y_recente = np.array([float(y) for _, y in janela_dados[-n_recente:]])
 
-            if len(y_recente.shape) != 1:
-                return None, None
+        y_recente = np.array([float(y) for _, y in janela_dados[-n_recente:]])
 
-            window_size = min(5, len(y_recente))
-            tendencia = np.zeros_like(y_recente)
-            for i in range(len(y_recente)):
-                start = max(0, i - window_size + 1)
-                tendencia[i] = np.mean(y_recente[start:i+1])
+        if len(y_recente.shape) != 1:
+            return None, None
 
-            if len(tendencia) >= 2:
-                inclinacao = tendencia[-1] - tendencia[-2]
-                return tendencia[-1], inclinacao
-        except Exception:
-            pass
+        window_size = min(5, len(y_recente))
+        tendencia = np.zeros_like(y_recente)
+        for i in range(len(y_recente)):
+            start = max(0, i - window_size + 1)
+            tendencia[i] = np.mean(y_recente[start:i+1])
+
+        if len(tendencia) >= 2:
+            inclinacao = tendencia[-1] - tendencia[-2]
+            return tendencia[-1], inclinacao
 
         return None, None
 
@@ -115,29 +114,16 @@ class StreamProcessor:
         if len(self.janela_dados_recentes) < 30:
             return None
 
-        try:
-            X_janela = np.array([x for x, _ in self.janela_dados_recentes[-30:]])
-            y_janela = np.array([y for _, y in self.janela_dados_recentes[-30:]])
+        X_janela = np.array([x for x, _ in self.janela_dados_recentes[-30:]])
+        y_janela = np.array([y for _, y in self.janela_dados_recentes[-30:]])
 
-            modelo_transicao = LinearRegressionModelo()
-            modelo_transicao.treinar(self.scaler.transform(X_janela), y_janela)
+        modelo_transicao = LinearRegressionModelo()
+        modelo_transicao.treinar(self.scaler.transform(X_janela), y_janela)
 
-            class ModeloTransicao:
-                def __init__(self, modelo):
-                    self.modelo = modelo
-                    self.nome = "ModeloTransicao"
-
-                def prever(self, X):
-                    return self.modelo.prever(X)
-
-            return ModeloTransicao(modelo_transicao)
-        except Exception:
-            return None
+        return ModeloTransicao(modelo_transicao)
 
     def _identificar_regime(self, i):
         """Identifica e gerencia regimes nos dados"""
-        from frameworkDetector.framework_detector import FrameworkDetector
-
         if i % 20 == 0 and len(self.janela_dados_recentes) >= self.min_samples_for_metrics:
             regime_anterior = self.regime_atual
             self.regime_atual = FrameworkDetector.identificar_regime(
@@ -156,8 +142,6 @@ class StreamProcessor:
 
     def _calcular_metricas_periodicas(self, i, indice_global, estado):
         """Calcula métricas e detecta degradação de desempenho periodicamente"""
-        from frameworkDetector.framework_detector import FrameworkDetector
-
         if i > 0 and i % self.metrics_interval == 0 and len(self.janela_dados_recentes) >= self.min_samples_for_metrics:
             X_janela_eval = np.array([x for x, _ in self.janela_dados_recentes])
             y_janela_eval = np.array([y for _, y in self.janela_dados_recentes])
@@ -173,7 +157,7 @@ class StreamProcessor:
             self.metricas_r2_stream.append((indice_global, r2))
 
             if mae > self.limiar_degradacao and not self.drift_detectado_flag and estado != "MUDANÇA":
-                print(f"\n  ⚠️ Degradação detectada (MAE: {mae:.4f})")
+                print(f"\n  Degradação detectada (MAE: {mae:.4f})")
 
                 melhor_modelo, melhor_erro, melhor_regime = None, float('inf'), None
 
@@ -189,13 +173,11 @@ class StreamProcessor:
 
                 if melhor_modelo and melhor_erro < mean_squared_error(y_janela_eval, y_prev_eval) * 0.9:
                     self.modelo_atual = melhor_modelo
-                    print(f"  🔄 Novo modelo do regime {melhor_regime}: '{melhor_modelo.nome if hasattr(melhor_modelo, 'nome') else type(melhor_modelo).__name__}'")
-                    print(f"  📊 Erro esperado: {melhor_erro:.4f}")
+                    print(f"  Novo modelo do regime {melhor_regime}: '{melhor_modelo.nome if hasattr(melhor_modelo, 'nome') else type(melhor_modelo).__name__}'")
+                    print(f"  Erro esperado: {melhor_erro:.4f}")
 
     def processar_stream(self, X_stream, Y_stream, initial_size, detector_escolhido):
         """Processa o stream de dados, detectando drifts e adaptando modelos"""
-        from frameworkDetector.framework_detector import FrameworkDetector
-
         print("\n=== Iniciando Processamento do Stream ===")
         print(f"Processando {len(X_stream)} amostras...")
 
