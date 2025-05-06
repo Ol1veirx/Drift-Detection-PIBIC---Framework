@@ -1,32 +1,34 @@
 import numpy as np
 
 
-class ModelWrapper:
-    """Wrapper para modelos de ML para usar no framework de detecção de drift"""
+class ModeloWrapper:
+    """Classe wrapper para modelos de regressão com interface unificada."""
 
-    def __init__(self, modelo, nome="Modelo"):
+    def __init__(self, modelo=None, nome=None, suporta_incremental=False):
+        """Inicializa o wrapper com um modelo interno."""
         self.modelo = modelo
         self.nome = nome
-
-    def prever(self, X):
-        """Realiza predição no formato numpy array"""
-        # Garantir que X está no formato correto
-        X = np.array(X)
-        if X.ndim == 1:
-            X = X.reshape(1, -1)
-        return self.modelo.predict(X)
+        self.suporta_incremental = suporta_incremental
 
     def treinar(self, X, y):
-        """Treina o modelo com os dados fornecidos"""
-        X = np.array(X)
-        y = np.array(y)
-        self.modelo.fit(X, y)
-        return self
+        """Treina o modelo com dados fornecidos."""
+        try:
+            self.modelo.treinar(X, y)
+            return True
+        except Exception as e:
+            print(f"Erro ao treinar modelo {self.nome}: {e}")
+            return False
+
+    def prever(self, X):
+        """Faz previsões com o modelo."""
+        return self.modelo.prever(X)
 
     def partial_fit(self, X, y):
-        """Treino incremental, se suportado pelo modelo"""
-        if hasattr(self.modelo, 'partial_fit'):
-            X = np.array(X)
-            y = np.array(y)
-            self.modelo.partial_fit(X, y)
-        return self
+        """Atualiza incrementalmente o modelo, se suportado."""
+        if self.suporta_incremental:
+            try:
+                self.modelo.partial_fit(X, y)
+                return True
+            except Exception as e:
+                return False
+        return False
