@@ -439,3 +439,58 @@ class Visualizer:
 
         plt.tight_layout()
         plt.show()
+
+
+    def visualizar_resultados_framework(y_stream, resultados, X_init_len=None):
+        """
+        Visualiza os resultados do framework em gráficos.
+
+        Parâmetros:
+        -----------
+        y_stream : array
+            Valores reais do stream
+        resultados : dict
+            Dicionário retornado pela função executar_framework
+        X_init_len : int, opcional
+            Tamanho dos dados iniciais (para ajustar índices se necessário)
+        """
+        offset = X_init_len if X_init_len else 0
+
+        # Plot das predições vs valores reais
+        plt.figure(figsize=(15, 10))
+
+        # Subplot 1: Valor Real vs. Previsão
+        plt.subplot(3, 1, 1)
+        plt.plot(range(len(y_stream)), y_stream, 'b-', label='Valor Real')
+        plt.plot(range(len(resultados['predicoes'])), resultados['predicoes'], 'r--', label='Previsão')
+        for drift in resultados['pontos_drift']:
+            plt.axvline(x=drift-offset, color='k', linestyle=':', label='_nolegend_')
+        plt.title("Valor Real vs. Previsão")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+
+        # Subplot 2: Erro Absoluto
+        plt.subplot(3, 1, 2)
+        plt.plot(resultados['erros'], 'r-', alpha=0.7)
+        plt.title("Erro Absoluto")
+        plt.grid(True, alpha=0.3)
+
+        # Subplot 3: Tamanho do Pool de Modelos
+        plt.subplot(3, 1, 3)
+        plt.plot(resultados['tamanho_pool_regime_atual'], 'c-')
+        plt.title("Tamanho do Pool de Modelos")
+        plt.xlabel("Amostra")
+        plt.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
+
+        # Adicionalmente, pode-se plotar o RMSE periódico
+        if resultados['indices_rmse']:
+            plt.figure(figsize=(12, 5))
+            plt.plot(resultados['indices_rmse'], resultados['valores_rmse'], 'b-o')
+            plt.title("RMSE ao longo do tempo")
+            plt.xlabel("Índice global")
+            plt.ylabel("RMSE")
+            plt.grid(True)
+            plt.show()

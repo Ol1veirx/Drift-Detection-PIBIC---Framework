@@ -1,6 +1,3 @@
-import numpy as np
-
-
 class ModeloWrapper:
     """Classe wrapper para modelos de regressão com interface unificada."""
 
@@ -12,6 +9,7 @@ class ModeloWrapper:
 
     def treinar(self, X, y):
         """Treina o modelo com dados fornecidos."""
+        # Aqui deixei com try/except para ter melhor controle, mas pode ser retirado
         try:
             self.modelo.treinar(X, y)
             return True
@@ -26,6 +24,7 @@ class ModeloWrapper:
     def partial_fit(self, X, y):
         """Atualiza incrementalmente o modelo, se suportado."""
         if self.suporta_incremental:
+            # Aqui deixei com try/except para ter melhor controle, mas pode ser retirado
             try:
                 self.modelo.partial_fit(X, y)
                 return True

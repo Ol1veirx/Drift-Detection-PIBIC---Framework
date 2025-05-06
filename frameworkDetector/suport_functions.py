@@ -6,6 +6,7 @@ from regressores.modelosOffline.KneighborsRegressorModelo import KNeighborsRegre
 from regressores.modelosOffline.RandomForestModelo import RandomForestModelo
 
 class FunctionSuport:
+
     @staticmethod
     def criar_modelo(tipo="rf"):
         """Cria e retorna um ModeloWrapper com o modelo especificado."""
@@ -40,15 +41,12 @@ class FunctionSuport:
 
         # Avalia cada modelo do pool
         for modelo in pool_modelos:
-            try:
-                y_pred = modelo.prever(X_janela_scaled)
-                erro = mean_squared_error(y_janela, y_pred)
+            y_pred = modelo.prever(X_janela_scaled)
+            erro = mean_squared_error(y_janela, y_pred)
 
-                if erro < menor_erro:
-                    menor_erro = erro
-                    melhor_modelo = modelo
-            except:
-                continue
+            if erro < menor_erro:
+                menor_erro = erro
+                melhor_modelo = modelo
 
         return melhor_modelo
 

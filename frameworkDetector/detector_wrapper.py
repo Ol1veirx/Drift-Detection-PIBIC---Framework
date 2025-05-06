@@ -19,7 +19,6 @@ class DetectorWrapper:
         Adapta para diferentes interfaces dos detectores.
         """
         # Tenta chamar método de atualização do detector
-        # (compatível com a maioria dos detectores)
         if hasattr(self.detector, 'update'):
             self.detector.update(valor)
         elif hasattr(self.detector, 'add_element'):
@@ -38,7 +37,6 @@ class DetectorWrapper:
         elif hasattr(self.detector, 'detected_change'):
             return self.detector.detected_change()
         elif hasattr(self.detector, 'detected_warning_zone'):
-            # Alguns detectores têm zona de alerta e mudança
             return self.detector.detected_warning_zone()
         else:
             # Se não encontrar nenhum padrão conhecido, assume sem drift
